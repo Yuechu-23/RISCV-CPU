@@ -13,7 +13,7 @@ module RF(
 );
 
     reg [31:0] register [1:31];
-    wire [31:0] r0 = 32'b0;
+    reg [31:0] r0 = 32'b0;
 
     always @(posedge clk) begin
         if((WR != 0) && RFWrite) begin
