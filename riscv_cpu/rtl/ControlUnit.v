@@ -10,18 +10,18 @@ module ControlUnit(
     input [6:0] opcode,
     input [6:0] Funct7,
     input [2:0] Funct3,
-    output reg PCWrite,
-    output reg InsMemRW,
-    output reg IRWrite,
-    output reg RFWrite,
-    output reg DMCtrl,
-    output reg ExtSel,
-    output reg ALUSrcA,
-    output reg [1:0] ALUSrcB,
-    output reg [1:0] RegSel,
-    output reg [1:0] NPCOp,
-    output reg [1:0] WDSel,
-    output reg [3:0] ALUOp
+    output reg PCWrite,       // PC update
+    output reg InsMemRW,      // Instruction memory read/write
+    output reg IRWrite,       // Instruction register write
+    output reg RFWrite,       // Register file write
+    output reg DMCtrl,        // Data memory control
+    output reg ExtSel,        // Immediate extension select
+    output reg ALUSrcA,       // ALU source A select
+    output reg [1:0] ALUSrcB, // ALU source B select
+    output reg [1:0] RegSel,  // Register file write address select
+    output reg [1:0] NPCOp,   // Next PC operation
+    output reg [1:0] WDSel,   // Write data select
+    output reg [3:0] ALUOp    // ALU operation
 );
 
     wire [9:0] funct_all;

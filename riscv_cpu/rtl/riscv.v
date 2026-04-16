@@ -26,13 +26,13 @@ module riscv(clk, rst);
     wire [31:0] A, B, ALU_result, ALU_result_r;
 
     assign opcode = out_ins[6:0];
-    assign Funct3 = out_ins[14:12];
-    assign Funct7 = out_ins[31:25];
-    assign rs1 = out_ins[19:15];
-    assign rs2 = out_ins[24:20];
-    assign rd = out_ins[11:7];
-    assign Imm12 = out_ins[31:20];
-    assign Offset20 = {out_ins[31], out_ins[19:12], out_ins[20], out_ins[30:21]};
+    assign Funct3 = out_ins[14:12]; // R-type, I-type, S-type, B-type
+    assign Funct7 = out_ins[31:25]; // R-type
+    assign rs1 = out_ins[19:15];    // R-type, I-type, S-type, B-type
+    assign rs2 = out_ins[24:20];    // R-type, S-type, B-type
+    assign rd = out_ins[11:7];      // R-type, I-type, J-type
+    assign Imm12 = out_ins[31:20];  // I-type
+    assign Offset20 = {out_ins[31], out_ins[19:12], out_ins[20], out_ins[30:21]}; // J-type
     assign Offset = (opcode == `INSTR_BTYPE_OP) ? {out_ins[31], out_ins[7], out_ins[30:25], out_ins[11:8]} : (opcode == `INSTR_SW_OP) ? {out_ins[31:25], out_ins[11:7]} : Imm12;
 
     ControlUnit U_ControlUnit(
