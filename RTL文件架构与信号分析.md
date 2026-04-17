@@ -321,48 +321,6 @@
 
 ---
 
-## 2.15 `ctrl_signal_def.v`
-
-### 作用
-集中定义控制编码宏。
-
-### 关键宏
-- `NPC_*`、`ALUSrcA_*`、`ALUSrcB_*`
-- `ExtSel_*`
-- `ALUOp_*`
-- `RegSel_*`
-- `WDSel_*`
-- `DMCtrl_*`
-
-### 不完整点
-- 宏命名存在历史兼容项（如 `RegSel_rt`），建议按 RV 语义再整理：**待补全**。
-
----
-
-## 2.16 `instruction_def.v`
-
-### 作用
-定义 opcode/funct 宏，供译码与控制单元使用。
-
-### 当前可见范围
-- 基础 opcode：R/I/B/LW/SW/JAL/JALR
-- funct：ADD/SUB/AND/OR/XOR/SLL/SRL/SRA、BEQ/BNE、ADDI/ORI
-
-### 不完整点
-- RV32I 全量指令宏（如 `slti/sltiu/xori/andi`、`lui/auipc` 等）：**待补全**。
-
----
-
-## 2.17 `global_def.v`
-
-### 作用
-全局开关宏（当前主要是 `DEBUG`）。
-
-### 不完整点
-- 缺少统一的仿真/综合开关体系（如 `SYNTHESIS`、仿真日志级别）：**待补全**。
-
----
-
 ## 3. 综合分析：该 CPU 的工作流程判断
 
 ## 3.1 单条指令的数据流（现实现）

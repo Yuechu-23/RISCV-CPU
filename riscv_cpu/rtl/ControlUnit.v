@@ -27,11 +27,42 @@ module ControlUnit(
     wire [9:0] funct_all;
     assign funct_all = {Funct7, Funct3};
 
+    localparam ST_IM_REQ    = 1'b0;
+    localparam ST_EXEC_LATCH = 1'b1;
+
+    reg state;
+    reg ir_valid;
+
+    // 两态节拍：
+    // ST_IM_REQ     : 发出 IM 读请求（InsMemRW=1）
+    // ST_EXEC_LATCH : 执行当前 out_ins，同时把上一拍 IM 输出锁存进 IR（IRWrite=1）
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            state    <= ST_IM_REQ;
+            ir_valid <= 1'b0;
+        end
+        else begin
+            case (state)
+                ST_IM_REQ: begin
+                    state <= ST_EXEC_LATCH;
+                end
+                ST_EXEC_LATCH: begin
+                    state    <= ST_IM_REQ;
+                    ir_valid <= 1'b1;
+                end
+                default: begin
+                    state    <= ST_IM_REQ;
+                    ir_valid <= 1'b0;
+                end
+            endcase
+        end
+    end
+
     always @(*) begin
-        // 默认值
-        PCWrite  = 1'b1;
-        InsMemRW = 1'b1;
-        IRWrite  = 1'b1;
+        // 默认值（安全关闭）
+        PCWrite  = 1'b0;
+        InsMemRW = 1'b0;
+        IRWrite  = 1'b0;
         RFWrite  = 1'b0;
         DMCtrl   = `DMCtrl_RD;
         ExtSel   = `ExtSel_SIGNED;
@@ -57,143 +88,160 @@ module ControlUnit(
             ALUOp    = `ALUOp_ADD;
         end
         else begin
-            case (opcode)
-
-                // R-type
-                `INSTR_RTYPE_OP: begin
-                    RFWrite = 1'b1;
-                    DMCtrl  = `DMCtrl_RD;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_B;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromALU;
-                    NPCOp   = `NPC_PC;
-
-                    case (funct_all)
-                        `INSTR_ADD_FUNCT: ALUOp = `ALUOp_ADD;
-                        `INSTR_SUB_FUNCT: ALUOp = `ALUOp_SUB;
-                        `INSTR_AND_FUNCT: ALUOp = `ALUOp_AND;
-                        `INSTR_OR_FUNCT : ALUOp = `ALUOp_OR;
-                        `INSTR_XOR_FUNCT: ALUOp = `ALUOp_XOR;
-                        `INSTR_SLL_FUNCT: ALUOp = `ALUOp_SLL;
-                        `INSTR_SRL_FUNCT: ALUOp = `ALUOp_SRL;
-                        `INSTR_SRA_FUNCT: ALUOp = `ALUOp_SRA;
-                        default:          ALUOp = `ALUOp_ADD;
-                    endcase
+            case (state)
+                ST_IM_REQ: begin
+                    // 第1拍：只发出IM读取
+                    InsMemRW = 1'b1;
                 end
 
-                // I-type
-                // 目前按 instruction_def.v
-                // 只支持 addi / ori
-                `INSTR_ITYPE_OP: begin
-                    RFWrite = 1'b1;
-                    DMCtrl  = `DMCtrl_RD;
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Imm;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromALU;
-                    NPCOp   = `NPC_PC;
+                ST_EXEC_LATCH: begin
+                    // 第2拍：执行当前IR内容，同时锁存新取到的指令
+                    IRWrite = 1'b1;
+                    PCWrite = 1'b1;
 
-                    case (Funct3)
-                        `INSTR_ADDI_FUNCT: ALUOp = `ALUOp_ADD;
-                        `INSTR_ORI_FUNCT : begin
-                            ALUOp  = `ALUOp_OR;
-                            ExtSel = `ExtSel_ZERO;
-                        end
-                        default: ALUOp = `ALUOp_ADD;
-                    endcase
-                end
+                    // 上电第一条指令尚未有效时，只做锁存与PC推进，不执行写回/访存
+                    if (ir_valid) begin
+                        case (opcode)
 
-                // LW
-                `INSTR_LW_OP: begin
-                    RFWrite = 1'b1;
-                    DMCtrl  = `DMCtrl_RD;
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Imm;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromMEM;
-                    NPCOp   = `NPC_PC;
-                    ALUOp   = `ALUOp_ADD;
-                end
+                            // R-type
+                            `INSTR_RTYPE_OP: begin
+                                RFWrite = 1'b1;
+                                DMCtrl  = `DMCtrl_RD;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_B;
+                                RegSel  = `RegSel_rd;
+                                WDSel   = `WDSel_FromALU;
+                                NPCOp   = `NPC_PC;
 
-                // SW
-                `INSTR_SW_OP: begin
-                    RFWrite = 1'b0;
-                    DMCtrl  = `DMCtrl_WR;
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Imm;
-                    NPCOp   = `NPC_PC;
-                    ALUOp   = `ALUOp_ADD;
-                end
+                                case (funct_all)
+                                    `INSTR_ADD_FUNCT: ALUOp = `ALUOp_ADD;
+                                    `INSTR_SUB_FUNCT: ALUOp = `ALUOp_SUB;
+                                    `INSTR_AND_FUNCT: ALUOp = `ALUOp_AND;
+                                    `INSTR_OR_FUNCT : ALUOp = `ALUOp_OR;
+                                    `INSTR_XOR_FUNCT: ALUOp = `ALUOp_XOR;
+                                    `INSTR_SLL_FUNCT: ALUOp = `ALUOp_SLL;
+                                    `INSTR_SRL_FUNCT: ALUOp = `ALUOp_SRL;
+                                    `INSTR_SRA_FUNCT: ALUOp = `ALUOp_SRA;
+                                    default:          ALUOp = `ALUOp_ADD;
+                                endcase
+                            end
 
-                // Branch : beq / bne
-                `INSTR_BTYPE_OP: begin
-                    RFWrite = 1'b0;
-                    DMCtrl  = `DMCtrl_RD;
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_B;
-                    ALUOp   = `ALUOp_BR;
+                            // I-type
+                            // 目前按 instruction_def.v
+                            // 只支持 addi / ori
+                            `INSTR_ITYPE_OP: begin
+                                RFWrite = 1'b1;
+                                DMCtrl  = `DMCtrl_RD;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_Imm;
+                                RegSel  = `RegSel_rd;
+                                WDSel   = `WDSel_FromALU;
+                                NPCOp   = `NPC_PC;
 
-                    case (Funct3)
-                        `INSTR_BEQ_FUNCT: begin
-                            if (zero)
-                                NPCOp = `NPC_Offset12;
-                            else
-                                NPCOp = `NPC_PC;
-                        end
+                                case (Funct3)
+                                    `INSTR_ADDI_FUNCT: ALUOp = `ALUOp_ADD;
+                                    `INSTR_ORI_FUNCT : begin
+                                        ALUOp  = `ALUOp_OR;
+                                        ExtSel = `ExtSel_ZERO;
+                                    end
+                                    default: ALUOp = `ALUOp_ADD;
+                                endcase
+                            end
 
-                        `INSTR_BNE_FUNCT: begin
-                            if (!zero)
-                                NPCOp = `NPC_Offset12;
-                            else
-                                NPCOp = `NPC_PC;
-                        end
+                            // LW
+                            `INSTR_LW_OP: begin
+                                RFWrite = 1'b1;
+                                DMCtrl  = `DMCtrl_RD;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_Imm;
+                                RegSel  = `RegSel_rd;
+                                WDSel   = `WDSel_FromMEM;
+                                NPCOp   = `NPC_PC;
+                                ALUOp   = `ALUOp_ADD;
+                            end
 
-                        default: begin
-                            NPCOp = `NPC_PC;
-                        end
-                    endcase
-                end
+                            // SW
+                            `INSTR_SW_OP: begin
+                                RFWrite = 1'b0;
+                                DMCtrl  = `DMCtrl_WR;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_Imm;
+                                NPCOp   = `NPC_PC;
+                                ALUOp   = `ALUOp_ADD;
+                            end
 
-                // JAL
-                `INSTR_JAL_OP: begin
-                    RFWrite = 1'b1;
-                    DMCtrl  = `DMCtrl_RD;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromPC;
-                    NPCOp   = `NPC_Offset20;
-                end
+                            // Branch : beq / bne
+                            `INSTR_BTYPE_OP: begin
+                                RFWrite = 1'b0;
+                                DMCtrl  = `DMCtrl_RD;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_B;
+                                ALUOp   = `ALUOp_BR;
 
-                // JALR
-                `INSTR_JALR_OP: begin
-                    RFWrite = 1'b1;
-                    DMCtrl  = `DMCtrl_RD;
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Imm;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromPC;
-                    NPCOp   = `NPC_rs;
-                    ALUOp   = `ALUOp_ADD;
+                                case (Funct3)
+                                    `INSTR_BEQ_FUNCT: begin
+                                        if (zero)
+                                            NPCOp = `NPC_Offset12;
+                                        else
+                                            NPCOp = `NPC_PC;
+                                    end
+
+                                    `INSTR_BNE_FUNCT: begin
+                                        if (!zero)
+                                            NPCOp = `NPC_Offset12;
+                                        else
+                                            NPCOp = `NPC_PC;
+                                    end
+
+                                    default: begin
+                                        NPCOp = `NPC_PC;
+                                    end
+                                endcase
+                            end
+
+                            // JAL
+                            `INSTR_JAL_OP: begin
+                                RFWrite = 1'b1;
+                                DMCtrl  = `DMCtrl_RD;
+                                RegSel  = `RegSel_rd;
+                                WDSel   = `WDSel_FromPC;
+                                NPCOp   = `NPC_Offset20;
+                            end
+
+                            // JALR
+                            `INSTR_JALR_OP: begin
+                                RFWrite = 1'b1;
+                                DMCtrl  = `DMCtrl_RD;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_Imm;
+                                RegSel  = `RegSel_rd;
+                                WDSel   = `WDSel_FromPC;
+                                NPCOp   = `NPC_rs;
+                                ALUOp   = `ALUOp_ADD;
+                            end
+
+                            default: begin
+                                RFWrite = 1'b0;
+                                DMCtrl  = `DMCtrl_RD;
+                                ExtSel  = `ExtSel_SIGNED;
+                                ALUSrcA = `ALUSrcA_A;
+                                ALUSrcB = `ALUSrcB_B;
+                                RegSel  = `RegSel_rd;
+                                NPCOp   = `NPC_PC;
+                                WDSel   = `WDSel_FromALU;
+                                ALUOp   = `ALUOp_ADD;
+                            end
+                        endcase
+                    end
                 end
 
                 default: begin
-                    PCWrite  = 1'b1;
                     InsMemRW = 1'b1;
-                    IRWrite  = 1'b1;
-                    RFWrite  = 1'b0;
-                    DMCtrl   = `DMCtrl_RD;
-                    ExtSel   = `ExtSel_SIGNED;
-                    ALUSrcA  = `ALUSrcA_A;
-                    ALUSrcB  = `ALUSrcB_B;
-                    RegSel   = `RegSel_rd;
-                    NPCOp    = `NPC_PC;
-                    WDSel    = `WDSel_FromALU;
-                    ALUOp    = `ALUOp_ADD;
                 end
             endcase
         end

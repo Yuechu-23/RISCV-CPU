@@ -2,13 +2,14 @@
 
 `include "ctrl_signal_def.v"
 
-module IM(InsMemRW, addr, Ins);
+module IM(clk, InsMemRW, addr, Ins);
+    input clk;
     input InsMemRW;
     input [11:2] addr;
     output reg [31:0] Ins;
     reg [31:0] memory [0:1023];
 
-    always @(addr or InsMemRW) begin
+    always @(posedge clk) begin
         if (InsMemRW) begin
             Ins <= memory[addr];
         end else begin

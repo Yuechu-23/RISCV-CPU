@@ -72,6 +72,7 @@ module riscv(clk, rst);
         .NPC(NPC)
     );
     IM U_IM(
+        .clk(clk),
         .addr(PC[11:2]),
         .Ins(in_ins),
         .InsMemRW(InsMemRW)
