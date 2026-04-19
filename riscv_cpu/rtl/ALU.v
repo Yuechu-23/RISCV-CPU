@@ -18,7 +18,8 @@ module ALU(A, B, ALUOp, zero, ALU_result);
             `ALUOp_SRA: ALU_result = A >>> B[4:0];
             `ALUOp_SLL: ALU_result = A << B[4:0];
             `ALUOp_SRL: ALU_result = $signed($unsigned(A) >> B[4:0]);
-            default:    ALU_result = 32'b0;
+            `ALUOp_BR:  ALU_result = A - B;
+            default:    ALU_result = 32'hFFFF_FFFF;
         endcase
     end
 
