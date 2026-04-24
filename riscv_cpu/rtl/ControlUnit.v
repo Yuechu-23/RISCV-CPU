@@ -24,8 +24,7 @@ module ControlUnit(
     output reg [3:0] ALUOp,   // ALU operation
     output reg AWrite,        // A寄存器写使能
     output reg BWrite,        // B寄存器写使能
-    output reg ALUOutWrite,   // ALUOut寄存器写使能
-    output reg MDRWrite       // MDR寄存器写使能
+    output reg ALUOutWrite    // ALUOut寄存器写使能
 );
 
     wire [9:0] funct_all;
@@ -120,7 +119,6 @@ module ControlUnit(
         AWrite   = 1'b0;
         BWrite   = 1'b0;
         ALUOutWrite = 1'b0;
-        MDRWrite = 1'b0;
         DMCtrl   = `DMCtrl_RD;
         ExtSel   = `ExtSel_SIGNED;
         ALUSrcA  = `ALUSrcA_A;
@@ -179,7 +177,7 @@ module ControlUnit(
                                 ALUOp  = `ALUOp_ADD;
                             end
                             `INSTR_ORI_FUNCT : begin
-                                ExtSel = `ExtSel_ZERO;
+                                ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_OR;
                             end
                             default: begin
@@ -201,15 +199,14 @@ module ControlUnit(
                 ST_EX_ADDR: begin
                     ExtSel  = `ExtSel_SIGNED;
                     ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Imm;
+                    ALUSrcB = `ALUSrcB_Offset;
                     ALUOp   = `ALUOp_ADD;
                     ALUOutWrite = 1'b1;
                 end
 
-                // MEM读: 数据存入MDR
+                // MEM读: 数据由DM子模块内部打拍
                 ST_MEM_RD: begin
                     DMCtrl   = `DMCtrl_RD;
-                    MDRWrite = 1'b1;
                 end
 
                 // MEM读后写回

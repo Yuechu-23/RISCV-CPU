@@ -9,15 +9,19 @@ module DM(
 );
 
     reg [31:0] memory[0:1023];
+    reg [31:0] rd_reg;
 
-    // 同步写
+    // 同步写 + 读数据打拍（替代顶层MDR）
     always @(posedge clk) begin
         if (DMCtrl == `DMCtrl_WR) begin
             memory[Addr] <= WD;
         end
+
+        if (DMCtrl == `DMCtrl_RD) begin
+            rd_reg <= memory[Addr];
+        end
     end
 
-    // 异步读
-    assign RD = (DMCtrl == `DMCtrl_RD) ? memory[Addr] : 32'b0;
+    assign RD = rd_reg;
 
 endmodule

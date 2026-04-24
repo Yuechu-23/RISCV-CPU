@@ -11,14 +11,18 @@
 - 260418：修改DM.v为同步写异步读
 - 260419：修复ALU分支缺失
 - 260420：更新多周期架构，修改了部分连线，有待验证
+- 260424：修改顶层与相关信号，DM.v读出打拍，RF.v r0特殊处理，NPC JALR逻辑修改
 
 ## 注意事项
 
-- IM.v用提供的memory替换（/home/library/tsmc65lp SRAM 2048*64 tt ? 后端时需要初赛不需要）
-- 添加模块最好加在子模块中
-- 已有连线不再改动，可修改连线名字
-- 不修改原有port位宽，可增加input/output
-- 不修改`include内容，可新增
+- 测试点：寄存器、内存，禁止改动
+- 顶层模块要求
+    - 不改动已有连线
+    - 不例化新模块
+    - 不能再增加时序和组合逻辑
+    - 不修改原有port位宽
+    - 新加逻辑添加在已有的子模块内部，可增加子模块端口
+- IM.v用提供的memory替换（/home/library/tsmc65lp SRAM TS1N65LPLL2048X64M8 memory ss 例化在U_IM中 后端综合时需要初赛不需要）
 
 ## 指令类型
 ![RV32I Instruction Format](riscv_instr_format.png)
