@@ -1,22 +1,25 @@
-`timescale 1ns/1ps
-
 `include "ctrl_signal_def.v"
 
 `ifndef STRINGIFY
 `define STRINGIFY(x) `"x`"
 `endif
 
-module IM(clk, InsMemRW, addr, Ins);
-    input clk;
-    input InsMemRW;
-    input [11:2] addr;
-    output reg [31:0] Ins;
-    reg [31:0] memory [0:1023];
-    reg [31:0] mem_rd [0:1023];
+module DM(
+    input  [11:2] Addr,
+    input  [31:0] WD,
+    input  clk,
+    input  DMCtrl,
+    output [31:0] RD
+);
+
+    reg [31:0] memory[0:1023];
+    reg [31:0] mem_rd[0:1023];
+    reg [31:0] rd_reg;
     integer i;
     integer mem_file;
 
     initial begin
+        rd_reg = 32'b0;
         for (i = 0; i < 1024; i = i + 1) begin
             memory[i] = 32'b0;
             mem_rd[i] = 32'b0;
@@ -25,10 +28,10 @@ module IM(clk, InsMemRW, addr, Ins);
 `ifdef PATH
         mem_file = $fopen(`STRINGIFY(`PATH), "r");
         if (mem_file == 0) begin
-            $display("[ERROR] IM open file %s failed", `STRINGIFY(`PATH));
+            $display("[ERROR] DM open file %s failed", `STRINGIFY(`PATH));
             $fatal;
         end
-        $display("[INFO] IM initialized with %s", `STRINGIFY(`PATH));
+        $display("[INFO] DM initialized with %s", `STRINGIFY(`PATH));
         $fread(mem_rd, mem_file);
         $fclose(mem_file);
         for (i = 0; i < 1024; i = i + 1) begin
@@ -37,11 +40,17 @@ module IM(clk, InsMemRW, addr, Ins);
 `endif
     end
 
+    // 同步写 + 读数据打拍（替代顶层MDR）
     always @(posedge clk) begin
-        if (InsMemRW) begin
-            Ins <= memory[addr];
-        end else begin
-            Ins <= 32'b0;
+        if (DMCtrl == `DMCtrl_WR) begin
+            memory[Addr] <= WD;
+        end
+
+        if (DMCtrl == `DMCtrl_RD) begin
+            rd_reg <= memory[Addr];
         end
     end
+
+    assign RD = rd_reg;
+
 endmodule

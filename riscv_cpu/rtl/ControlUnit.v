@@ -24,7 +24,8 @@ module ControlUnit(
     output reg [3:0] ALUOp,   // ALU operation
     output reg AWrite,        // A寄存器写使能
     output reg BWrite,        // B寄存器写使能
-    output reg ALUOutWrite    // ALUOut寄存器写使能
+    output reg ALUOutWrite,   // ALUOut寄存器写使能
+    output [3:0] state_dbg    // 当前状态，供测试提交信号使用
 );
 
     wire [9:0] funct_all;
@@ -44,6 +45,7 @@ module ControlUnit(
     localparam [3:0] ST_WB_ALU   = 4'd11;
 
     reg [3:0] state;
+    assign state_dbg = state;
 
     // 多周期FSM状态寄存器
     always @(posedge clk or posedge rst) begin

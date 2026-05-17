@@ -3,8 +3,21 @@
 `include "ctrl_signal_def.v"
 `include "instruction_def.v"
 
-module riscv(clk, rst);
+module riscv(
+    clk,
+    rst,
+    debug_wb_have_inst,
+    debug_wb_pc,
+    debug_wb_ena,
+    debug_wb_reg,
+    debug_wb_value
+);
     input clk, rst;
+    output reg debug_wb_have_inst;
+    output reg [31:0] debug_wb_pc;
+    output reg debug_wb_ena;
+    output reg [4:0] debug_wb_reg;
+    output reg [31:0] debug_wb_value;
 
     wire RFWrite, DMCtrl, PCWrite, IRWrite, InsMemRW, ExtSel, zero, ALUSrcA;
     wire AWrite, BWrite, ALUOutWrite;
@@ -25,6 +38,36 @@ module riscv(clk, rst);
     wire [31:0] WD;
     wire [31:0] RD1, RD1_r, RD2, RD2_r;
     wire [31:0] A, B, ALU_result, ALU_result_r;
+    wire [3:0] state_dbg;
+
+    localparam [3:0] ST_ID       = 4'd2;
+    localparam [3:0] ST_EX_BR    = 4'd5;
+    localparam [3:0] ST_EX_JAL   = 4'd6;
+    localparam [3:0] ST_EX_JALR  = 4'd7;
+    localparam [3:0] ST_MEM_WB   = 4'd9;
+    localparam [3:0] ST_MEM_WR   = 4'd10;
+    localparam [3:0] ST_WB_ALU   = 4'd11;
+
+    wire supported_opcode;
+    wire commit_now;
+
+    assign supported_opcode =
+        (opcode == `INSTR_RTYPE_OP) ||
+        (opcode == `INSTR_ITYPE_OP) ||
+        (opcode == `INSTR_LW_OP)    ||
+        (opcode == `INSTR_SW_OP)    ||
+        (opcode == `INSTR_BTYPE_OP) ||
+        (opcode == `INSTR_JAL_OP)   ||
+        (opcode == `INSTR_JALR_OP);
+
+    assign commit_now =
+        (state_dbg == ST_WB_ALU)  ||
+        (state_dbg == ST_MEM_WB)  ||
+        (state_dbg == ST_MEM_WR)  ||
+        (state_dbg == ST_EX_BR)   ||
+        (state_dbg == ST_EX_JAL)  ||
+        (state_dbg == ST_EX_JALR) ||
+        ((state_dbg == ST_ID) && !supported_opcode);
 
     assign opcode = out_ins[6:0];
     assign Funct3 = out_ins[14:12];
@@ -57,7 +100,8 @@ module riscv(clk, rst);
         .RegSel(RegSel),
         .AWrite(AWrite),
         .BWrite(BWrite),
-        .ALUOutWrite(ALUOutWrite)
+        .ALUOutWrite(ALUOutWrite),
+        .state_dbg(state_dbg)
     );
     PC U_PC(
         .clk(clk),
@@ -166,4 +210,20 @@ module riscv(clk, rst);
     );
 
     assign DR_out = RD;
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            debug_wb_have_inst <= 1'b0;
+            debug_wb_pc        <= 32'b0;
+            debug_wb_ena       <= 1'b0;
+            debug_wb_reg       <= 5'b0;
+            debug_wb_value     <= 32'b0;
+        end else begin
+            debug_wb_have_inst <= commit_now;
+            debug_wb_pc        <= PC - 32'd4;
+            debug_wb_ena       <= commit_now ? RFWrite : 1'b0;
+            debug_wb_reg       <= commit_now ? WR : 5'b0;
+            debug_wb_value     <= commit_now ? WD : 32'b0;
+        end
+    end
 endmodule
