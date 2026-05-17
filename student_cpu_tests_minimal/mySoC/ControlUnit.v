@@ -31,6 +31,10 @@ module ControlUnit(
     wire [9:0] funct_all;
     assign funct_all = {Funct7, Funct3};
 
+    // 新增U-type操作码（不依赖instruction_def.v，避免你当前宏不全）
+    localparam [6:0] INSTR_LUI_OP   = 7'b0110111;
+    localparam [6:0] INSTR_AUIPC_OP = 7'b0010111;
+
     localparam [3:0] ST_IF_REQ   = 4'd0;
     localparam [3:0] ST_IF_LATCH = 4'd1;
     localparam [3:0] ST_ID       = 4'd2;
@@ -65,7 +69,9 @@ module ControlUnit(
                 ST_ID: begin
                     case (opcode)
                         `INSTR_RTYPE_OP,
-                        `INSTR_ITYPE_OP: state <= ST_EX_ALU;
+                        `INSTR_ITYPE_OP,
+                        INSTR_LUI_OP,
+                        INSTR_AUIPC_OP: state <= ST_EX_ALU;
 
                         `INSTR_LW_OP,
                         `INSTR_SW_OP:    state <= ST_EX_ADDR;
@@ -114,21 +120,21 @@ module ControlUnit(
 
     always @(*) begin
         // 默认值（安全关闭）
-        PCWrite  = 1'b0;
-        InsMemRW = 1'b0;
-        IRWrite  = 1'b0;
-        RFWrite  = 1'b0;
-        AWrite   = 1'b0;
-        BWrite   = 1'b0;
+        PCWrite     = 1'b0;
+        InsMemRW    = 1'b0;
+        IRWrite     = 1'b0;
+        RFWrite     = 1'b0;
+        AWrite      = 1'b0;
+        BWrite      = 1'b0;
         ALUOutWrite = 1'b0;
-        DMCtrl   = `DMCtrl_RD;
-        ExtSel   = `ExtSel_SIGNED;
-        ALUSrcA  = `ALUSrcA_A;
-        ALUSrcB  = `ALUSrcB_B;
-        RegSel   = `RegSel_rd;
-        NPCOp    = `NPC_PC;
-        WDSel    = `WDSel_FromALU;
-        ALUOp    = `ALUOp_ADD;
+        DMCtrl      = `DMCtrl_RD;
+        ExtSel      = `ExtSel_SIGNED;
+        ALUSrcA     = `ALUSrcA_A;
+        ALUSrcB     = `ALUSrcB_B;
+        RegSel      = `RegSel_rd;
+        NPCOp       = `NPC_PC;
+        WDSel       = `WDSel_FromALU;
+        ALUOp       = `ALUOp_ADD;
 
         if (!rst) begin
             case (state)
@@ -150,14 +156,14 @@ module ControlUnit(
                     BWrite = 1'b1;
                 end
 
-                // EX(ALU): R-type / I-type 运算，结果进ALUOut
+                // EX(ALU): R-type / I-type / U-type 运算，结果进ALUOut
                 ST_EX_ALU: begin
-                    ALUSrcA = `ALUSrcA_A;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromALU;
+                    RegSel      = `RegSel_rd;
+                    WDSel       = `WDSel_FromALU;
                     ALUOutWrite = 1'b1;
 
                     if (opcode == `INSTR_RTYPE_OP) begin
+                        ALUSrcA = `ALUSrcA_A;
                         ALUSrcB = `ALUSrcB_B;
                         case (funct_all)
                             `INSTR_ADD_FUNCT: ALUOp = `ALUOp_ADD;
@@ -171,22 +177,66 @@ module ControlUnit(
                             default:          ALUOp = `ALUOp_ADD;
                         endcase
                     end
-                    else begin
+                    else if (opcode == `INSTR_ITYPE_OP) begin
+                        ALUSrcA = `ALUSrcA_A;
                         ALUSrcB = `ALUSrcB_Imm;
                         case (Funct3)
-                            `INSTR_ADDI_FUNCT: begin
+                            3'b000: begin // ADDI
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_ADD;
                             end
-                            `INSTR_ORI_FUNCT : begin
+                            3'b010: begin // SLTI（先用BR比较通路，后续ALU里完善）
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_BR;
+                            end
+                            3'b011: begin // SLTIU（同上，后续ALU完善无符号）
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_BR;
+                            end
+                            3'b100: begin // XORI
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_XOR;
+                            end
+                            3'b110: begin // ORI
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_OR;
+                            end
+                            3'b111: begin // ANDI
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_AND;
+                            end
+                            3'b001: begin // SLLI
+                                ExtSel = `ExtSel_ZERO;
+                                ALUOp  = `ALUOp_SLL;
+                            end
+                            3'b101: begin
+                                ExtSel = `ExtSel_ZERO;
+                                if (Funct7 == 7'b0100000) // SRAI
+                                    ALUOp = `ALUOp_SRA;
+                                else                      // SRLI
+                                    ALUOp = `ALUOp_SRL;
                             end
                             default: begin
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_ADD;
                             end
                         endcase
+                    end
+                    else if (opcode == INSTR_LUI_OP) begin
+                        // LUI: rd = imm << 12
+                        // 复用现有路径：A=0, B=Imm12(符号扩展) 后续建议配合EXT/ALU再完善成标准U-imm
+                        ALUSrcA = `ALUSrcA_sa;  // 选择0
+                        ALUSrcB = `ALUSrcB_Imm;
+                        ExtSel  = `ExtSel_SIGNED;
+                        ALUOp   = `ALUOp_ADD;
+                    end
+                    else if (opcode == INSTR_AUIPC_OP) begin
+                        // AUIPC: rd = pc + imm << 12
+                        // 先保留最小路径，后续建议新增U-imm专用通路
+                        ALUSrcA = `ALUSrcA_sa;  // 当前MUX里sa对应0，后续需结合顶层增强
+                        ALUSrcB = `ALUSrcB_Imm;
+                        ExtSel  = `ExtSel_SIGNED;
+                        ALUOp   = `ALUOp_ADD;
                     end
                 end
 
@@ -199,16 +249,16 @@ module ControlUnit(
 
                 // EX(ADDR): LW/SW地址计算
                 ST_EX_ADDR: begin
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Offset;
-                    ALUOp   = `ALUOp_ADD;
+                    ExtSel      = `ExtSel_SIGNED;
+                    ALUSrcA     = `ALUSrcA_A;
+                    ALUSrcB     = `ALUSrcB_Offset;
+                    ALUOp       = `ALUOp_ADD;
                     ALUOutWrite = 1'b1;
                 end
 
-                // MEM读: 数据由DM子模块内部打拍
+                // MEM读
                 ST_MEM_RD: begin
-                    DMCtrl   = `DMCtrl_RD;
+                    DMCtrl = `DMCtrl_RD;
                 end
 
                 // MEM读后写回
@@ -223,27 +273,36 @@ module ControlUnit(
                     DMCtrl = `DMCtrl_WR;
                 end
 
-                // 分支比较并更新PC
+                // 分支比较并更新PC（扩展到所有B型）
                 ST_EX_BR: begin
                     ALUSrcA = `ALUSrcA_A;
                     ALUSrcB = `ALUSrcB_B;
                     ALUOp   = `ALUOp_BR;
                     PCWrite = 1'b0;
+
                     case (Funct3)
-                        `INSTR_BEQ_FUNCT: begin
+                        3'b000: begin // BEQ
                             if (zero) begin
                                 PCWrite = 1'b1;
                                 NPCOp   = `NPC_Offset12;
                             end
                         end
-
-                        `INSTR_BNE_FUNCT: begin
+                        3'b001: begin // BNE
                             if (!zero) begin
                                 PCWrite = 1'b1;
                                 NPCOp   = `NPC_Offset12;
                             end
                         end
-
+                        3'b100, // BLT
+                        3'b101, // BGE
+                        3'b110, // BLTU
+                        3'b111: begin // BGEU
+                            // 先统一走BR比较（后续ALU需区分有/无符号与比较方向）
+                            if (!zero) begin
+                                PCWrite = 1'b1;
+                                NPCOp   = `NPC_Offset12;
+                            end
+                        end
                         default: begin
                             PCWrite = 1'b0;
                         end
@@ -259,7 +318,7 @@ module ControlUnit(
                     WDSel   = `WDSel_FromPC;
                 end
 
-                // JALR: PC跳转并写回PC+4（PC目标由NPC模块的rs输入提供）
+                // JALR: PC跳转并写回PC+4
                 ST_EX_JALR: begin
                     ExtSel  = `ExtSel_SIGNED;
                     PCWrite = 1'b1;

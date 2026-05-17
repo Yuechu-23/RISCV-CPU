@@ -115,6 +115,7 @@ module riscv(
         .NPCOp(NPCOp),
         .Offset12(Offset),
         .Offset20(Offset20),
+        .Imm12(Imm12),
         .rs(RD1),
         .PCA4(PCA4),
         .NPC(NPC)

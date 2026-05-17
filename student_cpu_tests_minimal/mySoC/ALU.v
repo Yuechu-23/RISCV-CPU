@@ -10,20 +10,21 @@ module ALU(A, B, ALUOp, zero, ALU_result);
 
     always @(*) begin
         case (ALUOp)
-            `ALUOp_ADD: ALU_result = A + B;
-            `ALUOp_SUB: ALU_result = A - B;
-            `ALUOp_AND: ALU_result = A & B;
-            `ALUOp_OR:  ALU_result = A | B;
-            `ALUOp_XOR: ALU_result = A ^ B;
-            `ALUOp_SRA: ALU_result = A >>> B[4:0];
-            `ALUOp_SLL: ALU_result = A << B[4:0];
-            `ALUOp_SRL: ALU_result = $signed($unsigned(A) >> B[4:0]);
-            `ALUOp_BR:  ALU_result = A - B;
-            default:    ALU_result = 32'hFFFF_FFFF;
+            `ALUOp_ADD:  ALU_result = A + B;
+            `ALUOp_SUB:  ALU_result = A - B;
+            `ALUOp_AND:  ALU_result = A & B;
+            `ALUOp_OR:   ALU_result = A | B;
+            `ALUOp_XOR:  ALU_result = A ^ B;
+            `ALUOp_SLT:  ALU_result = ($signed(A) < $signed(B)) ? 32'd1 : 32'd0;
+            `ALUOp_SLTU: ALU_result = ($unsigned(A) < $unsigned(B)) ? 32'd1 : 32'd0;
+            `ALUOp_SRA:  ALU_result = A >>> B[4:0];
+            `ALUOp_SLL:  ALU_result = A << B[4:0];
+            `ALUOp_SRL:  ALU_result = $signed($unsigned(A) >> B[4:0]);
+            `ALUOp_BR:   ALU_result = A - B;  // 分支用，zero=相等
+            default:     ALU_result = 32'h0;
         endcase
     end
 
     assign zero = (ALU_result == 32'b0);
 
 endmodule
-

@@ -1,4 +1,5 @@
 `include "ctrl_signal_def.v"
+`include "instruction_def.v"
 
 `ifndef STRINGIFY
 `define STRINGIFY(x) `"x`"
@@ -17,6 +18,10 @@ module DM(
     reg [31:0] rd_reg;
     integer i;
     integer mem_file;
+
+    // 用于字节地址低2位：从WD的低2位借用（保持现有接口，不新增端口）
+    wire [1:0] byte_off;
+    assign byte_off = WD[1:0];
 
     initial begin
         rd_reg = 32'b0;
@@ -40,9 +45,9 @@ module DM(
 `endif
     end
 
-    // 同步写 + 读数据打拍（替代顶层MDR）
     always @(posedge clk) begin
         if (DMCtrl == `DMCtrl_WR) begin
+            // 默认整字写（当前控制器未显式传store宽度，这里先保守）
             memory[Addr] <= WD;
         end
 
