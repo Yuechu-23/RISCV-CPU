@@ -28,6 +28,8 @@
 `define ALUOp_SLL 4'b1000
 `define ALUOp_SRL 4'b1001
 `define ALUOp_BR 4'b1010
+`define ALUOp_SLT  4'b1011
+`define ALUOp_SLTU 4'b1100
 
 // RF control signal
 `define RegSel_rd 2'b00
