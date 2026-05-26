@@ -28,6 +28,7 @@ module NPC(NPCOp, Offset12, Offset20, PC, rs, PCA4, NPC);
             `NPC_Offset12: NPC = $signed({1'b0, PC}) + $signed(Offset13);
             `NPC_rs: NPC = (rs + JALRImm32) & 32'hFFFF_FFFE;
             `NPC_Offset20: NPC = $signed({1'b0, PC}) + $signed(Offset21);
+            default: NPC = PC + 4;
         endcase
         PCA4 = PC + 4;
     end

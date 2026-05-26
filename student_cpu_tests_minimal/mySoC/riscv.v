@@ -31,7 +31,7 @@ module riscv(
     wire [31:0] in_ins, out_ins, RD, DR_out;
     wire [4:0] rs1, rs2, rd;
     wire [11:0] Imm12;
-    wire [31:0] Imm32;
+    wire [31:0] Imm32, UImm32, UTypeWD;
     wire [20:1] Offset20;
     wire [11:0] Offset;
     wire [4:0] WR;
@@ -40,13 +40,13 @@ module riscv(
     wire [31:0] A, B, ALU_result, ALU_result_r;
     wire [3:0] state_dbg;
 
-    localparam [3:0] ST_ID       = 4'd2;
-    localparam [3:0] ST_EX_BR    = 4'd5;
-    localparam [3:0] ST_EX_JAL   = 4'd6;
-    localparam [3:0] ST_EX_JALR  = 4'd7;
-    localparam [3:0] ST_MEM_WB   = 4'd9;
-    localparam [3:0] ST_MEM_WR   = 4'd10;
-    localparam [3:0] ST_WB_ALU   = 4'd11;
+    localparam [3:0] ST_ID       = 4'd1;
+    localparam [3:0] ST_EX_BR    = 4'd4;
+    localparam [3:0] ST_EX_JAL   = 4'd5;
+    localparam [3:0] ST_EX_JALR  = 4'd6;
+    localparam [3:0] ST_MEM_WB   = 4'd8;
+    localparam [3:0] ST_MEM_WR   = 4'd9;
+    localparam [3:0] ST_WB_ALU   = 4'd10;
 
     wire supported_opcode;
     wire commit_now;
@@ -58,7 +58,9 @@ module riscv(
         (opcode == `INSTR_SW_OP)    ||
         (opcode == `INSTR_BTYPE_OP) ||
         (opcode == `INSTR_JAL_OP)   ||
-        (opcode == `INSTR_JALR_OP);
+        (opcode == `INSTR_JALR_OP)  ||
+        (opcode == `INSTR_LUI_OP)   ||
+        (opcode == `INSTR_AUIPC_OP);
 
     assign commit_now =
         (state_dbg == ST_WB_ALU)  ||
@@ -76,6 +78,8 @@ module riscv(
     assign rs2 = out_ins[24:20];
     assign rd = out_ins[11:7];
     assign Imm12 = out_ins[31:20];
+    assign UImm32 = {out_ins[31:12], 12'b0};
+    assign UTypeWD = (opcode == `INSTR_AUIPC_OP) ? (PC + UImm32) : UImm32;
     assign Offset20 = {out_ins[31], out_ins[19:12], out_ins[20], out_ins[30:21]};
     assign Offset = (opcode == `INSTR_BTYPE_OP) ? {out_ins[31], out_ins[7], out_ins[30:25], out_ins[11:8]} : (opcode == `INSTR_SW_OP) ? {out_ins[31:25], out_ins[11:7]} : Imm12;
 
@@ -120,7 +124,6 @@ module riscv(
         .NPC(NPC)
     );
     IM U_IM(
-        .clk(clk),
         .addr(PC[11:2]),
         .Ins(in_ins),
         .InsMemRW(InsMemRW)
@@ -152,6 +155,7 @@ module riscv(
         .X(ALU_result_r),
         .Y(DR_out),
         .Z(PCA4),
+        .W(UTypeWD),
         .control(WDSel),
         .out(WD)
     );
@@ -220,7 +224,7 @@ module riscv(
             debug_wb_value     <= 32'b0;
         end else begin
             debug_wb_have_inst <= commit_now;
-            debug_wb_pc        <= PC - 32'd4;
+            debug_wb_pc        <= PC;
             debug_wb_ena       <= commit_now ? RFWrite : 1'b0;
             debug_wb_reg       <= commit_now ? WR : 5'b0;
             debug_wb_value     <= commit_now ? WD : 32'b0;

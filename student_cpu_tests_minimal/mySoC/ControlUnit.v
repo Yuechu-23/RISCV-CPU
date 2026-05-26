@@ -31,18 +31,17 @@ module ControlUnit(
     wire [9:0] funct_all;
     assign funct_all = {Funct7, Funct3};
 
-    localparam [3:0] ST_IF_REQ   = 4'd0;
-    localparam [3:0] ST_IF_LATCH = 4'd1;
-    localparam [3:0] ST_ID       = 4'd2;
-    localparam [3:0] ST_EX_ALU   = 4'd3;
-    localparam [3:0] ST_EX_ADDR  = 4'd4;
-    localparam [3:0] ST_EX_BR    = 4'd5;
-    localparam [3:0] ST_EX_JAL   = 4'd6;
-    localparam [3:0] ST_EX_JALR  = 4'd7;
-    localparam [3:0] ST_MEM_RD   = 4'd8;
-    localparam [3:0] ST_MEM_WB   = 4'd9;
-    localparam [3:0] ST_MEM_WR   = 4'd10;
-    localparam [3:0] ST_WB_ALU   = 4'd11;
+    localparam [3:0] ST_IF       = 4'd0;
+    localparam [3:0] ST_ID       = 4'd1;
+    localparam [3:0] ST_EX_ALU   = 4'd2;
+    localparam [3:0] ST_EX_ADDR  = 4'd3;
+    localparam [3:0] ST_EX_BR    = 4'd4;
+    localparam [3:0] ST_EX_JAL   = 4'd5;
+    localparam [3:0] ST_EX_JALR  = 4'd6;
+    localparam [3:0] ST_MEM_RD   = 4'd7;
+    localparam [3:0] ST_MEM_WB   = 4'd8;
+    localparam [3:0] ST_MEM_WR   = 4'd9;
+    localparam [3:0] ST_WB_ALU   = 4'd10;
 
     reg [3:0] state;
     assign state_dbg = state;
@@ -50,15 +49,11 @@ module ControlUnit(
     // 多周期FSM状态寄存器
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            state <= ST_IF_REQ;
+            state <= ST_IF;
         end
         else begin
             case (state)
-                ST_IF_REQ: begin
-                    state <= ST_IF_LATCH;
-                end
-
-                ST_IF_LATCH: begin
+                ST_IF: begin
                     state <= ST_ID;
                 end
 
@@ -73,8 +68,10 @@ module ControlUnit(
                         `INSTR_BTYPE_OP: state <= ST_EX_BR;
                         `INSTR_JAL_OP:   state <= ST_EX_JAL;
                         `INSTR_JALR_OP:  state <= ST_EX_JALR;
+                        `INSTR_LUI_OP,
+                        `INSTR_AUIPC_OP: state <= ST_WB_ALU;
 
-                        default:         state <= ST_IF_REQ;
+                        default:         state <= ST_IF;
                     endcase
                 end
 
@@ -83,7 +80,7 @@ module ControlUnit(
                 end
 
                 ST_WB_ALU: begin
-                    state <= ST_IF_REQ;
+                    state <= ST_IF;
                 end
 
                 ST_EX_ADDR: begin
@@ -102,11 +99,11 @@ module ControlUnit(
                 ST_EX_BR,
                 ST_EX_JAL,
                 ST_EX_JALR: begin
-                    state <= ST_IF_REQ;
+                    state <= ST_IF;
                 end
 
                 default: begin
-                    state <= ST_IF_REQ;
+                    state <= ST_IF;
                 end
             endcase
         end
@@ -132,16 +129,10 @@ module ControlUnit(
 
         if (!rst) begin
             case (state)
-                // IF1: 发出IM同步读请求
-                ST_IF_REQ: begin
+                // IF: 读取指令锁存到IR，PC不更新（在指令结束时统一更新）
+                ST_IF: begin
                     InsMemRW = 1'b1;
-                end
-
-                // IF2: 锁存指令并PC+4
-                ST_IF_LATCH: begin
-                    IRWrite = 1'b1;
-                    PCWrite = 1'b1;
-                    NPCOp   = `NPC_PC;
+                    IRWrite  = 1'b1;
                 end
 
                 // ID: 读取寄存器并锁存到A/B寄存器
@@ -190,11 +181,15 @@ module ControlUnit(
                     end
                 end
 
-                // WB(ALU): ALUOut写回寄存器
+                // WB(ALU): ALUOut写回寄存器，顺序PC+4
                 ST_WB_ALU: begin
+                    PCWrite = 1'b1;
                     RFWrite = 1'b1;
                     RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromALU;
+                    if ((opcode == `INSTR_LUI_OP) || (opcode == `INSTR_AUIPC_OP))
+                        WDSel = `WDSel_Else;
+                    else
+                        WDSel = `WDSel_FromALU;
                 end
 
                 // EX(ADDR): LW/SW地址计算
@@ -211,41 +206,38 @@ module ControlUnit(
                     DMCtrl   = `DMCtrl_RD;
                 end
 
-                // MEM读后写回
+                // MEM读后写回，顺序PC+4
                 ST_MEM_WB: begin
+                    PCWrite = 1'b1;
                     RFWrite = 1'b1;
                     RegSel  = `RegSel_rd;
                     WDSel   = `WDSel_FromMEM;
                 end
 
-                // MEM写
+                // MEM写，顺序PC+4
                 ST_MEM_WR: begin
+                    PCWrite = 1'b1;
                     DMCtrl = `DMCtrl_WR;
                 end
 
-                // 分支比较并更新PC
+                // 分支比较并更新PC（默认顺序PC+4，满足条件则跳转）
                 ST_EX_BR: begin
                     ALUSrcA = `ALUSrcA_A;
                     ALUSrcB = `ALUSrcB_B;
                     ALUOp   = `ALUOp_BR;
-                    PCWrite = 1'b0;
+                    PCWrite = 1'b1;
+                    NPCOp   = `NPC_PC;
                     case (Funct3)
                         `INSTR_BEQ_FUNCT: begin
                             if (zero) begin
-                                PCWrite = 1'b1;
-                                NPCOp   = `NPC_Offset12;
+                                NPCOp = `NPC_Offset12;
                             end
                         end
 
                         `INSTR_BNE_FUNCT: begin
                             if (!zero) begin
-                                PCWrite = 1'b1;
-                                NPCOp   = `NPC_Offset12;
+                                NPCOp = `NPC_Offset12;
                             end
-                        end
-
-                        default: begin
-                            PCWrite = 1'b0;
                         end
                     endcase
                 end

@@ -13,6 +13,8 @@
 - 260420：更新多周期架构，修改了部分连线，有待验证
 - 260424：修改顶层与相关信号，DM.v读出打拍，RF.v r0特殊处理，NPC JALR逻辑修改
 - 260517：接入测试框架，jal实现有问题，继续修改
+- 260526：修改状态机与相关信号，jal实现正确。
+    - 未通过测试：andi, bge, bgeu, blt, bltu, lb, lbu, lh, lhu, lui, lw, sb, sh, slli, slt, slti, sltiu, sltu, srai, srli, start, xori
 
 ## 注意事项
 
