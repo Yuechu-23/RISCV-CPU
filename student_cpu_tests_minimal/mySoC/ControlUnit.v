@@ -7,6 +7,8 @@ module ControlUnit(
     input rst,
     input clk,
     input zero,
+    input less,
+    input lessu,
     input [6:0] opcode,
     input [6:0] Funct7,
     input [2:0] Funct3,
@@ -159,6 +161,8 @@ module ControlUnit(
                             `INSTR_SLL_FUNCT: ALUOp = `ALUOp_SLL;
                             `INSTR_SRL_FUNCT: ALUOp = `ALUOp_SRL;
                             `INSTR_SRA_FUNCT: ALUOp = `ALUOp_SRA;
+                            `INSTR_SLT_FUNCT:  ALUOp = `ALUOp_SLT;
+                            `INSTR_SLTU_FUNCT: ALUOp = `ALUOp_SLTU;
                             default:          ALUOp = `ALUOp_ADD;
                         endcase
                     end
@@ -169,10 +173,45 @@ module ControlUnit(
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_ADD;
                             end
-                            `INSTR_ORI_FUNCT : begin
+
+                            `INSTR_ANDI_FUNCT: begin
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_AND;
+                            end
+
+                            `INSTR_ORI_FUNCT: begin
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_OR;
                             end
+
+                            `INSTR_XORI_FUNCT: begin
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_XOR;
+                            end
+
+                            `INSTR_SLTI_FUNCT: begin
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_SLT;
+                            end
+
+                            `INSTR_SLTIU_FUNCT: begin
+                                ExtSel = `ExtSel_SIGNED;
+                                ALUOp  = `ALUOp_SLTU;
+                            end
+
+                            `INSTR_SLLI_FUNCT: begin
+                                ExtSel = `ExtSel_ZERO;
+                                ALUOp  = `ALUOp_SLL;
+                            end
+
+                            `INSTR_SRLI_SRAI_FUNCT: begin
+                                ExtSel = `ExtSel_ZERO;
+                                if (Funct7 == 7'b0100000)
+                                    ALUOp = `ALUOp_SRA;
+                                else
+                                    ALUOp = `ALUOp_SRL;
+                            end
+
                             default: begin
                                 ExtSel = `ExtSel_SIGNED;
                                 ALUOp  = `ALUOp_ADD;
@@ -224,21 +263,52 @@ module ControlUnit(
                 ST_EX_BR: begin
                     ALUSrcA = `ALUSrcA_A;
                     ALUSrcB = `ALUSrcB_B;
-                    ALUOp   = `ALUOp_BR;
                     PCWrite = 1'b1;
                     NPCOp   = `NPC_PC;
+
                     case (Funct3)
+
                         `INSTR_BEQ_FUNCT: begin
-                            if (zero) begin
+                            ALUOp = `ALUOp_BR;
+                            if (zero)
                                 NPCOp = `NPC_Offset12;
-                            end
                         end
 
                         `INSTR_BNE_FUNCT: begin
-                            if (!zero) begin
+                            ALUOp = `ALUOp_BR;
+                            if (!zero)
                                 NPCOp = `NPC_Offset12;
-                            end
                         end
+
+                        `INSTR_BLT_FUNCT: begin
+                            ALUOp = `ALUOp_SLT;
+                            if (less)
+                                NPCOp = `NPC_Offset12;
+                        end
+
+                        `INSTR_BGE_FUNCT: begin
+                            ALUOp = `ALUOp_SLT;
+                            if (!less)
+                                NPCOp = `NPC_Offset12;
+                        end
+
+                        `INSTR_BLTU_FUNCT: begin
+                            ALUOp = `ALUOp_SLTU;
+                            if (lessu)
+                                NPCOp = `NPC_Offset12;
+                        end
+
+                        `INSTR_BGEU_FUNCT: begin
+                            ALUOp = `ALUOp_SLTU;
+                            if (!lessu)
+                                NPCOp = `NPC_Offset12;
+                        end
+
+                        default: begin
+                            ALUOp = `ALUOp_BR;
+                            NPCOp = `NPC_PC;
+                        end
+
                     endcase
                 end
 
