@@ -9,29 +9,50 @@ module ControlUnit(
     input zero,
     input less,
     input lessu,
-    input [6:0] opcode,
-    input [6:0] Funct7,
-    input [2:0] Funct3,
-    output reg PCWrite,       // PC update
-    output reg InsMemRW,      // Instruction memory read/write
-    output reg IRWrite,       // Instruction register write
-    output reg RFWrite,       // Register file write
-    output reg DMCtrl,        // Data memory control
-    output reg ExtSel,        // Immediate extension select
-    output reg ALUSrcA,       // ALU source A select
-    output reg [1:0] ALUSrcB, // ALU source B select
-    output reg [1:0] RegSel,  // Register file write address select
-    output reg [1:0] NPCOp,   // Next PC operation
-    output reg [1:0] WDSel,   // Write data select
-    output reg [3:0] ALUOp,   // ALU operation
-    output reg AWrite,        // A寄存器写使能
-    output reg BWrite,        // B寄存器写使能
-    output reg ALUOutWrite,   // ALUOut寄存器写使能
-    output [3:0] state_dbg    // 当前状态，供测试提交信号使用
-);
 
-    wire [9:0] funct_all;
-    assign funct_all = {Funct7, Funct3};
+    // From Decode: instruction classification
+    input is_rtype,
+    input is_itype,
+    input is_lw,
+    input is_sw,
+    input is_btype,
+    input is_jal,
+    input is_jalr,
+    input is_lui,
+    input is_auipc,
+    input illegal_inst,
+
+    // From Decode: memory access intent
+    input MemRead,
+    input MemWrite,
+
+    // From Decode: write-back intent
+    input RFWE,
+
+    // From Decode: default control flow
+    input [1:0] dec_NPCOp,
+
+    // Branch resolution needs Funct3
+    input [2:0] Funct3,
+
+    // === FSM enable signals ===
+    output reg PCWrite,
+    output reg InsMemRW,
+    output reg IRWrite,
+    output reg RFWrite,
+    output reg AWrite,
+    output reg BWrite,
+    output reg ALUOutWrite,
+
+    // === Memory control (state-gated) ===
+    output reg DMCtrl,
+
+    // === Control flow (FSM may override for branches) ===
+    output reg [1:0] NPCOp,
+
+    // === State for debug ===
+    output [3:0] state_dbg
+);
 
     localparam [3:0] ST_IF       = 4'd0;
     localparam [3:0] ST_ID       = 4'd1;
@@ -48,7 +69,7 @@ module ControlUnit(
     reg [3:0] state;
     assign state_dbg = state;
 
-    // 多周期FSM状态寄存器
+    // === FSM state transitions ===
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= ST_IF;
@@ -60,21 +81,22 @@ module ControlUnit(
                 end
 
                 ST_ID: begin
-                    case (opcode)
-                        `INSTR_RTYPE_OP,
-                        `INSTR_ITYPE_OP: state <= ST_EX_ALU;
-
-                        `INSTR_LW_OP,
-                        `INSTR_SW_OP:    state <= ST_EX_ADDR;
-
-                        `INSTR_BTYPE_OP: state <= ST_EX_BR;
-                        `INSTR_JAL_OP:   state <= ST_EX_JAL;
-                        `INSTR_JALR_OP:  state <= ST_EX_JALR;
-                        `INSTR_LUI_OP,
-                        `INSTR_AUIPC_OP: state <= ST_WB_ALU;
-
-                        default:         state <= ST_IF;
-                    endcase
+                    if (illegal_inst)
+                        state <= ST_IF;
+                    else if (is_rtype || is_itype)
+                        state <= ST_EX_ALU;
+                    else if (is_lw || is_sw)
+                        state <= ST_EX_ADDR;
+                    else if (is_btype)
+                        state <= ST_EX_BR;
+                    else if (is_jal)
+                        state <= ST_EX_JAL;
+                    else if (is_jalr)
+                        state <= ST_EX_JALR;
+                    else if (is_lui || is_auipc)
+                        state <= ST_WB_ALU;
+                    else
+                        state <= ST_IF;
                 end
 
                 ST_EX_ALU: begin
@@ -86,7 +108,7 @@ module ControlUnit(
                 end
 
                 ST_EX_ADDR: begin
-                    if (opcode == `INSTR_LW_OP)
+                    if (is_lw)
                         state <= ST_MEM_RD;
                     else
                         state <= ST_MEM_WR;
@@ -111,224 +133,83 @@ module ControlUnit(
         end
     end
 
+    // === Output logic: enable signals + NPCOp override ===
     always @(*) begin
-        // 默认值（安全关闭）
-        PCWrite  = 1'b0;
-        InsMemRW = 1'b0;
-        IRWrite  = 1'b0;
-        RFWrite  = 1'b0;
-        AWrite   = 1'b0;
-        BWrite   = 1'b0;
+        // Safe defaults
+        PCWrite     = 1'b0;
+        InsMemRW    = 1'b0;
+        IRWrite     = 1'b0;
+        RFWrite     = 1'b0;
+        AWrite      = 1'b0;
+        BWrite      = 1'b0;
         ALUOutWrite = 1'b0;
-        DMCtrl   = `DMCtrl_RD;
-        ExtSel   = `ExtSel_SIGNED;
-        ALUSrcA  = `ALUSrcA_A;
-        ALUSrcB  = `ALUSrcB_B;
-        RegSel   = `RegSel_rd;
-        NPCOp    = `NPC_PC;
-        WDSel    = `WDSel_FromALU;
-        ALUOp    = `ALUOp_ADD;
+        DMCtrl      = `DMCtrl_RD;
+        NPCOp       = dec_NPCOp;
 
         if (!rst) begin
             case (state)
-                // IF: 读取指令锁存到IR，PC不更新（在指令结束时统一更新）
                 ST_IF: begin
                     InsMemRW = 1'b1;
                     IRWrite  = 1'b1;
                 end
 
-                // ID: 读取寄存器并锁存到A/B寄存器
                 ST_ID: begin
                     AWrite = 1'b1;
                     BWrite = 1'b1;
                 end
 
-                // EX(ALU): R-type / I-type 运算，结果进ALUOut
                 ST_EX_ALU: begin
-                    ALUSrcA = `ALUSrcA_A;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromALU;
                     ALUOutWrite = 1'b1;
-
-                    if (opcode == `INSTR_RTYPE_OP) begin
-                        ALUSrcB = `ALUSrcB_B;
-                        case (funct_all)
-                            `INSTR_ADD_FUNCT: ALUOp = `ALUOp_ADD;
-                            `INSTR_SUB_FUNCT: ALUOp = `ALUOp_SUB;
-                            `INSTR_AND_FUNCT: ALUOp = `ALUOp_AND;
-                            `INSTR_OR_FUNCT : ALUOp = `ALUOp_OR;
-                            `INSTR_XOR_FUNCT: ALUOp = `ALUOp_XOR;
-                            `INSTR_SLL_FUNCT: ALUOp = `ALUOp_SLL;
-                            `INSTR_SRL_FUNCT: ALUOp = `ALUOp_SRL;
-                            `INSTR_SRA_FUNCT: ALUOp = `ALUOp_SRA;
-                            `INSTR_SLT_FUNCT:  ALUOp = `ALUOp_SLT;
-                            `INSTR_SLTU_FUNCT: ALUOp = `ALUOp_SLTU;
-                            default:          ALUOp = `ALUOp_ADD;
-                        endcase
-                    end
-                    else begin
-                        ALUSrcB = `ALUSrcB_Imm;
-                        case (Funct3)
-                            `INSTR_ADDI_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_ADD;
-                            end
-
-                            `INSTR_ANDI_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_AND;
-                            end
-
-                            `INSTR_ORI_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_OR;
-                            end
-
-                            `INSTR_XORI_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_XOR;
-                            end
-
-                            `INSTR_SLTI_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_SLT;
-                            end
-
-                            `INSTR_SLTIU_FUNCT: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_SLTU;
-                            end
-
-                            `INSTR_SLLI_FUNCT: begin
-                                ExtSel = `ExtSel_ZERO;
-                                ALUOp  = `ALUOp_SLL;
-                            end
-
-                            `INSTR_SRLI_SRAI_FUNCT: begin
-                                ExtSel = `ExtSel_ZERO;
-                                if (Funct7 == 7'b0100000)
-                                    ALUOp = `ALUOp_SRA;
-                                else
-                                    ALUOp = `ALUOp_SRL;
-                            end
-
-                            default: begin
-                                ExtSel = `ExtSel_SIGNED;
-                                ALUOp  = `ALUOp_ADD;
-                            end
-                        endcase
-                    end
                 end
 
-                // WB(ALU): ALUOut写回寄存器，顺序PC+4
                 ST_WB_ALU: begin
                     PCWrite = 1'b1;
-                    RFWrite = 1'b1;
-                    RegSel  = `RegSel_rd;
-                    if ((opcode == `INSTR_LUI_OP) || (opcode == `INSTR_AUIPC_OP))
-                        WDSel = `WDSel_Else;
-                    else
-                        WDSel = `WDSel_FromALU;
+                    RFWrite = RFWE;
                 end
 
-                // EX(ADDR): LW/SW地址计算
                 ST_EX_ADDR: begin
-                    ExtSel  = `ExtSel_SIGNED;
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_Offset;
-                    ALUOp   = `ALUOp_ADD;
                     ALUOutWrite = 1'b1;
                 end
 
-                // MEM读: 数据由DM子模块内部打拍
                 ST_MEM_RD: begin
-                    DMCtrl   = `DMCtrl_RD;
+                    DMCtrl = `DMCtrl_RD;
                 end
 
-                // MEM读后写回，顺序PC+4
                 ST_MEM_WB: begin
                     PCWrite = 1'b1;
-                    RFWrite = 1'b1;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromMEM;
+                    RFWrite = RFWE;
                 end
 
-                // MEM写，顺序PC+4
                 ST_MEM_WR: begin
                     PCWrite = 1'b1;
-                    DMCtrl = `DMCtrl_WR;
+                    DMCtrl = MemWrite ? `DMCtrl_WR : `DMCtrl_RD;
                 end
 
-                // 分支比较并更新PC（默认顺序PC+4，满足条件则跳转）
                 ST_EX_BR: begin
-                    ALUSrcA = `ALUSrcA_A;
-                    ALUSrcB = `ALUSrcB_B;
                     PCWrite = 1'b1;
                     NPCOp   = `NPC_PC;
 
                     case (Funct3)
-
-                        `INSTR_BEQ_FUNCT: begin
-                            ALUOp = `ALUOp_BR;
-                            if (zero)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        `INSTR_BNE_FUNCT: begin
-                            ALUOp = `ALUOp_BR;
-                            if (!zero)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        `INSTR_BLT_FUNCT: begin
-                            ALUOp = `ALUOp_SLT;
-                            if (less)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        `INSTR_BGE_FUNCT: begin
-                            ALUOp = `ALUOp_SLT;
-                            if (!less)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        `INSTR_BLTU_FUNCT: begin
-                            ALUOp = `ALUOp_SLTU;
-                            if (lessu)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        `INSTR_BGEU_FUNCT: begin
-                            ALUOp = `ALUOp_SLTU;
-                            if (!lessu)
-                                NPCOp = `NPC_Offset12;
-                        end
-
-                        default: begin
-                            ALUOp = `ALUOp_BR;
-                            NPCOp = `NPC_PC;
-                        end
-
+                        `INSTR_BEQ_FUNCT:  if (zero)         NPCOp = `NPC_Offset12;
+                        `INSTR_BNE_FUNCT:  if (!zero)        NPCOp = `NPC_Offset12;
+                        `INSTR_BLT_FUNCT:  if (less)         NPCOp = `NPC_Offset12;
+                        `INSTR_BGE_FUNCT:  if (!less)        NPCOp = `NPC_Offset12;
+                        `INSTR_BLTU_FUNCT: if (lessu)        NPCOp = `NPC_Offset12;
+                        `INSTR_BGEU_FUNCT: if (!lessu)       NPCOp = `NPC_Offset12;
+                        default:           NPCOp = `NPC_PC;
                     endcase
                 end
 
-                // JAL: PC跳转并写回PC+4
                 ST_EX_JAL: begin
                     PCWrite = 1'b1;
-                    NPCOp   = `NPC_Offset20;
-                    RFWrite = 1'b1;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromPC;
+                    RFWrite = RFWE;
+                    NPCOp   = dec_NPCOp;
                 end
 
-                // JALR: PC跳转并写回PC+4（PC目标由NPC模块的rs输入提供）
                 ST_EX_JALR: begin
-                    ExtSel  = `ExtSel_SIGNED;
                     PCWrite = 1'b1;
-                    NPCOp   = `NPC_rs;
-                    RFWrite = 1'b1;
-                    RegSel  = `RegSel_rd;
-                    WDSel   = `WDSel_FromPC;
+                    RFWrite = RFWE;
+                    NPCOp   = dec_NPCOp;
                 end
 
                 default: begin

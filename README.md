@@ -13,45 +13,8 @@
 - 260420：更新多周期架构，修改了部分连线，有待验证
 - 260424：修改顶层与相关信号，DM.v读出打拍，RF.v r0特殊处理，NPC JALR逻辑修改
 - 260517：接入测试框架，jal实现有问题，继续修改
-- 260526：修改状态机与相关信号，jal实现正确。
-    - 未通过测试：andi, bge, bgeu, blt, bltu, lb, lbu, lh, lhu, lui, lw, sb, sh, slli, slt, slti, sltiu, sltu, srai, srli, start, xori
-
-## 注意事项
-
-- 测试点：寄存器、内存，禁止改动
-- 顶层模块要求
-    - 不改动已有连线
-    - 不例化新模块
-    - 不能再增加时序和组合逻辑
-    - 不修改原有port位宽
-    - 新加逻辑添加在已有的子模块内部，可增加子模块端口
-- IM.v用提供的memory替换（/home/library/tsmc65lp SRAM TS1N65LPLL2048X64M8 memory ss 例化在U_IM中 后端综合时需要初赛不需要）
-
-## 指令类型
-![RV32I Instruction Format](riscv_instr_format.png)
-- R型（寄存器运算） `INSTR_RTYPE_OP`
-    - ADD
-    - SUB
-    - AND
-    - OR
-    - XOR
-    - SLL
-    - SRL
-    - SRA
-- I型（立即数运算/加载/寄存器跳转）
-    - `INSTR_ITYPE_OP`
-        - ADDI
-        - ORI
-    - LW
-    - JALR
-- S型（存储）
-    - SW
-- B型（条件分支）`INSTR_BTYPE_OP`
-    - BEQ
-    - BNE
-- J型（无条件跳转）
-    - JAL
-
+- 260526：多周期架构基本完成，测试通过。
+    - 增加ImmGen模块，负责立即数生成
 
 ## 仿真方法：
 - 在/target/riscv_cpu_design/sim目录执行`make`,仿真结束后sim文件夹下出现novas.fsdb的波形文件，继续在相同目录执行`verdi -ssf novas.fsdb &`，在新窗口的signal下拉窗口选择Get All Signals即可观察到波形.

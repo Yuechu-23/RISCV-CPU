@@ -19,28 +19,37 @@ module riscv(
     output reg [4:0] debug_wb_reg;
     output reg [31:0] debug_wb_value;
 
-    wire RFWrite, DMCtrl, PCWrite, IRWrite, InsMemRW, ExtSel, zero, less, lessu, ALUSrcA;
-    wire AWrite, BWrite, ALUOutWrite;
-    wire [1:0] ALUSrcB;
-    wire [1:0] NPCOp, WDSel, RegSel;
+    // ControlUnit outputs (FSM enable signals + state-gated memory control)
+    wire RFWrite, PCWrite, IRWrite, InsMemRW, AWrite, BWrite, ALUOutWrite, DMCtrl;
+    wire [1:0] NPCOp;
+    wire [3:0] state_dbg;
+
+    // Decode outputs — instruction semantics (wired directly to datapath)
+    wire ExtSel, ALUSrcA;
+    wire [1:0] ALUSrcB, WDSel, RegSel;
     wire [3:0] ALUOp;
+
+    // Decode outputs — to ControlUnit for FSM decisions
+    wire is_rtype, is_itype, is_lw, is_sw, is_btype, is_jal, is_jalr;
+    wire is_lui, is_auipc, illegal_inst, RFWE, MemRead, MemWrite;
+    wire [1:0] dec_NPCOp;
+
+    // ALU status flags
+    wire zero, less, lessu;
+
+    // Instruction fields
     wire [6:0] opcode;
     wire [2:0] Funct3;
     wire [6:0] Funct7;
     wire [31:0] PC, NPC, PCA4;
     wire [31:0] in_ins, out_ins, RD, DR_out;
     wire [4:0] rs1, rs2, rd;
-    wire [11:0] Imm12;
-    wire [31:0] Imm32, UImm32, UTypeWD;
-    wire [20:1] Offset20;
-    wire [11:0] Offset;
+    wire [31:0] ImmI, ImmIZero, ImmS, ImmB, ImmU, ImmJ;
+    wire [31:0] Imm32, ImmAddr, UTypeWD;
     wire [4:0] WR;
     wire [31:0] WD;
     wire [31:0] RD1, RD1_r, RD2, RD2_r;
     wire [31:0] A, B, ALU_result, ALU_result_r;
-    wire [3:0] state_dbg;
-
-    reg [2:0] Funct3_r;
 
     localparam [3:0] ST_ID       = 4'd1;
     localparam [3:0] ST_EX_BR    = 4'd4;
@@ -50,19 +59,41 @@ module riscv(
     localparam [3:0] ST_MEM_WR   = 4'd9;
     localparam [3:0] ST_WB_ALU   = 4'd10;
 
-    wire supported_opcode;
     wire commit_now;
 
-    assign supported_opcode =
-        (opcode == `INSTR_RTYPE_OP) ||
-        (opcode == `INSTR_ITYPE_OP) ||
-        (opcode == `INSTR_LW_OP)    ||
-        (opcode == `INSTR_SW_OP)    ||
-        (opcode == `INSTR_BTYPE_OP) ||
-        (opcode == `INSTR_JAL_OP)   ||
-        (opcode == `INSTR_JALR_OP)  ||
-        (opcode == `INSTR_LUI_OP)   ||
-        (opcode == `INSTR_AUIPC_OP);
+    Decode U_Decode(
+        .opcode(opcode),
+        .Funct3(Funct3),
+        .Funct7(Funct7),
+
+        .is_rtype(is_rtype),
+        .is_itype(is_itype),
+        .is_lw(is_lw),
+        .is_sw(is_sw),
+        .is_btype(is_btype),
+        .is_jal(is_jal),
+        .is_jalr(is_jalr),
+        .is_lui(is_lui),
+        .is_auipc(is_auipc),
+        .illegal_inst(illegal_inst),
+
+        .ALUOp(ALUOp),
+        .ALUSrcA(ALUSrcA),
+        .ALUSrcB(ALUSrcB),
+
+        .ExtSel(ExtSel),
+
+        .MemRead(MemRead),
+        .MemWrite(MemWrite),
+
+        .RFWE(RFWE),
+        .WDSel(WDSel),
+        .RegSel(RegSel),
+
+        .is_branch(),
+        .is_jump(),
+        .NPCOp(dec_NPCOp)
+    );
 
     assign commit_now =
         (state_dbg == ST_WB_ALU)  ||
@@ -71,7 +102,7 @@ module riscv(
         (state_dbg == ST_EX_BR)   ||
         (state_dbg == ST_EX_JAL)  ||
         (state_dbg == ST_EX_JALR) ||
-        ((state_dbg == ST_ID) && !supported_opcode);
+        ((state_dbg == ST_ID) && illegal_inst);
 
     assign opcode = out_ins[6:0];
     assign Funct3 = out_ins[14:12];
@@ -79,11 +110,19 @@ module riscv(
     assign rs1 = out_ins[19:15];
     assign rs2 = out_ins[24:20];
     assign rd = out_ins[11:7];
-    assign Imm12 = out_ins[31:20];
-    assign UImm32 = {out_ins[31:12], 12'b0};
-    assign UTypeWD = (opcode == `INSTR_AUIPC_OP) ? (PC + UImm32) : UImm32;
-    assign Offset20 = {out_ins[31], out_ins[19:12], out_ins[20], out_ins[30:21]};
-    assign Offset = (opcode == `INSTR_BTYPE_OP) ? {out_ins[31], out_ins[7], out_ins[30:25], out_ins[11:8]} : (opcode == `INSTR_SW_OP) ? {out_ins[31:25], out_ins[11:7]} : Imm12;
+    ImmGen U_ImmGen(
+        .inst(out_ins),
+        .ImmI(ImmI),
+        .ImmIZero(ImmIZero),
+        .ImmS(ImmS),
+        .ImmB(ImmB),
+        .ImmU(ImmU),
+        .ImmJ(ImmJ)
+    );
+
+    assign Imm32   = ExtSel ? ImmI : ImmIZero;
+    assign ImmAddr = (opcode == `INSTR_SW_OP) ? ImmS : ImmI;
+    assign UTypeWD = (opcode == `INSTR_AUIPC_OP) ? (PC + ImmU) : ImmU;
 
     ControlUnit U_ControlUnit(
         .clk(clk),
@@ -91,24 +130,35 @@ module riscv(
         .zero(zero),
         .less(less),
         .lessu(lessu),
-        .opcode(opcode),
-        .Funct7(Funct7),
+
+        .is_rtype(is_rtype),
+        .is_itype(is_itype),
+        .is_lw(is_lw),
+        .is_sw(is_sw),
+        .is_btype(is_btype),
+        .is_jal(is_jal),
+        .is_jalr(is_jalr),
+        .is_lui(is_lui),
+        .is_auipc(is_auipc),
+        .illegal_inst(illegal_inst),
+
+        .MemRead(MemRead),
+        .MemWrite(MemWrite),
+
+        .RFWE(RFWE),
+        .dec_NPCOp(dec_NPCOp),
         .Funct3(Funct3),
-        .RFWrite(RFWrite),
-        .DMCtrl(DMCtrl),
+
         .PCWrite(PCWrite),
-        .IRWrite(IRWrite),
         .InsMemRW(InsMemRW),
-        .ExtSel(ExtSel),
-        .ALUOp(ALUOp),
-        .NPCOp(NPCOp),
-        .ALUSrcA(ALUSrcA),
-        .WDSel(WDSel),
-        .ALUSrcB(ALUSrcB),
-        .RegSel(RegSel),
+        .IRWrite(IRWrite),
+        .RFWrite(RFWrite),
         .AWrite(AWrite),
         .BWrite(BWrite),
         .ALUOutWrite(ALUOutWrite),
+        .DMCtrl(DMCtrl),
+
+        .NPCOp(NPCOp),
         .state_dbg(state_dbg)
     );
     PC U_PC(
@@ -121,8 +171,9 @@ module riscv(
     NPC U_NPC(
         .PC(PC),
         .NPCOp(NPCOp),
-        .Offset12(Offset),
-        .Offset20(Offset20),
+        .ImmI(ImmI),
+        .ImmB(ImmB),
+        .ImmJ(ImmJ),
         .rs(RD1),
         .PCA4(PCA4),
         .NPC(NPC)
@@ -177,11 +228,6 @@ module riscv(
         .in_data(RD2),
         .out_data(RD2_r)
     );
-    EXT U_EXT(
-        .imm_in(Imm12),
-        .ExtSel(ExtSel),
-        .imm_out(Imm32)
-    );
     MUX_2to1_A U_MUX_2to1_A(
         .X(RD1_r),
         .Y(32'h0),
@@ -191,7 +237,7 @@ module riscv(
     MUX_3to1_B U_MUX_3to1_B(
         .X(RD2_r),
         .Y(Imm32),
-        .Z(Offset),
+        .Z(ImmAddr),
         .control(ALUSrcB),
         .out(B)
     );
@@ -221,15 +267,6 @@ module riscv(
     );
 
     assign DR_out = RD;
-
-
-    always @(posedge clk or posedge rst) begin
-        if (rst) begin
-            Funct3_r <= 3'b000;
-        end else if (state_dbg == ST_ID) begin
-            Funct3_r <= Funct3;
-        end
-    end
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
