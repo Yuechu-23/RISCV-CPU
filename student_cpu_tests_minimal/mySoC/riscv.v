@@ -19,7 +19,7 @@ module riscv(
     output reg [4:0] debug_wb_reg;
     output reg [31:0] debug_wb_value;
 
-    wire RFWrite, DMCtrl, PCWrite, IRWrite, InsMemRW, ExtSel, zero, ALUSrcA;
+    wire RFWrite, DMCtrl, PCWrite, IRWrite, InsMemRW, ExtSel, zero, less, lessu, ALUSrcA;
     wire AWrite, BWrite, ALUOutWrite;
     wire [1:0] ALUSrcB;
     wire [1:0] NPCOp, WDSel, RegSel;
@@ -39,6 +39,8 @@ module riscv(
     wire [31:0] RD1, RD1_r, RD2, RD2_r;
     wire [31:0] A, B, ALU_result, ALU_result_r;
     wire [3:0] state_dbg;
+
+    reg [2:0] Funct3_r;
 
     localparam [3:0] ST_ID       = 4'd1;
     localparam [3:0] ST_EX_BR    = 4'd4;
@@ -87,6 +89,8 @@ module riscv(
         .clk(clk),
         .rst(rst),
         .zero(zero),
+        .less(less),
+        .lessu(lessu),
         .opcode(opcode),
         .Funct7(Funct7),
         .Funct3(Funct3),
@@ -124,7 +128,7 @@ module riscv(
         .NPC(NPC)
     );
     IM U_IM(
-        .addr(PC[11:2]),
+        .addr(PC[14:2]),
         .Ins(in_ins),
         .InsMemRW(InsMemRW)
     );
@@ -196,7 +200,9 @@ module riscv(
         .B(B),
         .ALUOp(ALUOp),
         .ALU_result(ALU_result),
-        .zero(zero)
+        .zero(zero),
+        .less(less),
+        .lessu(lessu)
     );
     Flopr U_ALU_result(
         .clk(clk),
@@ -206,14 +212,24 @@ module riscv(
         .out_data(ALU_result_r)
     );
     DM U_DM(
-        .Addr(ALU_result_r[11:2]),
+        .Addr(ALU_result_r),
         .WD(RD2_r),
+        .Funct3(Funct3),
         .DMCtrl(DMCtrl),
         .clk(clk),
         .RD(RD)
     );
 
     assign DR_out = RD;
+
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            Funct3_r <= 3'b000;
+        end else if (state_dbg == ST_ID) begin
+            Funct3_r <= Funct3;
+        end
+    end
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
