@@ -15,6 +15,7 @@
 - 260517：接入测试框架，jal实现有问题，继续修改
 - 260526：多周期架构基本完成，测试通过。
     - 增加ImmGen模块，负责立即数生成
+- 260526：修改为流水线架构，测试通过。
 
 ## 仿真方法：
 - 在/target/riscv_cpu_design/sim目录执行`make`,仿真结束后sim文件夹下出现novas.fsdb的波形文件，继续在相同目录执行`verdi -ssf novas.fsdb &`，在新窗口的signal下拉窗口选择Get All Signals即可观察到波形.
