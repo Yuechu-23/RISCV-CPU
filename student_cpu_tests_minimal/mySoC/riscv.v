@@ -63,10 +63,8 @@ module riscv(
     wire id_mem_write;
     wire id_rf_we;
     wire [1:0] id_wd_sel;
-    wire [1:0] id_reg_sel;
     wire id_is_branch;
     wire id_is_jump;
-    wire [1:0] id_npc_op;
     wire id_uses_rs1;
     wire id_uses_rs2;
 
@@ -107,9 +105,6 @@ module riscv(
     wire [31:0] ex_alu_a;
     wire [31:0] ex_alu_b;
     wire [31:0] ex_alu_result;
-    wire ex_zero;
-    wire ex_less;
-    wire ex_lessu;
     wire ex_branch_taken;
     wire [31:0] ex_branch_target;
     wire [31:0] ex_jal_target;
@@ -193,10 +188,8 @@ module riscv(
         .MemWrite(id_mem_write),
         .RFWE(id_rf_we),
         .WDSel(id_wd_sel),
-        .RegSel(id_reg_sel),
         .is_branch(id_is_branch),
-        .is_jump(id_is_jump),
-        .NPCOp(id_npc_op)
+        .is_jump(id_is_jump)
     );
 
     ImmGen U_ImmGen(
@@ -273,10 +266,7 @@ module riscv(
         .A(ex_alu_a),
         .B(ex_alu_b),
         .ALUOp(id_ex_alu_op),
-        .ALU_result(ex_alu_result),
-        .zero(ex_zero),
-        .less(ex_less),
-        .lessu(ex_lessu)
+        .ALU_result(ex_alu_result)
     );
 
     assign ex_branch_taken =

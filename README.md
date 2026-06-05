@@ -1,8 +1,5 @@
 # RISCV-CPU
 
-## 参考图片
-![RV32I Single Cycle CPU](rv32isingle.png)
-
 ## 日志
 
 - 260415：修改ControlUnit.v，有待验证与继续修改

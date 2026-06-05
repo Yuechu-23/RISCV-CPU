@@ -35,12 +35,10 @@ module Decode(
     // === Write-back control ===
     output reg RFWE,
     output reg [1:0] WDSel,
-    output reg [1:0] RegSel,
 
     // === Control flow ===
     output reg is_branch,
-    output reg is_jump,
-    output reg [1:0] NPCOp
+    output reg is_jump
 );
 
     wire [9:0] funct_all;
@@ -194,7 +192,6 @@ module Decode(
         // Defaults
         RFWE   = 1'b0;
         WDSel  = `WDSel_FromALU;
-        RegSel = `RegSel_rd;
 
         case (opcode)
             `INSTR_RTYPE_OP,
@@ -231,28 +228,23 @@ module Decode(
     always @(*) begin
         is_branch = 1'b0;
         is_jump   = 1'b0;
-        NPCOp     = `NPC_PC;
 
         case (opcode)
             `INSTR_BTYPE_OP: begin
                 is_branch = 1'b1;
-                NPCOp     = `NPC_PC;   // default: not taken; FSM overrides on condition
             end
 
             `INSTR_JAL_OP: begin
                 is_jump = 1'b1;
-                NPCOp   = `NPC_Offset20;
             end
 
             `INSTR_JALR_OP: begin
                 is_jump = 1'b1;
-                NPCOp   = `NPC_rs;
             end
 
             default: begin
                 is_branch = 1'b0;
                 is_jump   = 1'b0;
-                NPCOp     = `NPC_PC;
             end
         endcase
     end

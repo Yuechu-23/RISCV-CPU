@@ -1,18 +1,10 @@
-// NPC control signal
-`define NPC_PC 2'b00
-`define NPC_Offset12 2'b01
-`define NPC_rs 2'b10
-`define NPC_Offset20 2'b11
-
 // A control signal
 `define ALUSrcA_A 1'b0
-`define ALUSrcA_sa 1'b1
 
 // B control signal
 `define ALUSrcB_B 2'b00
 `define ALUSrcB_Imm 2'b01
 `define ALUSrcB_Offset 2'b10
-`define ALUSrcB_else 2'b11
 
 // EXT control signal
 `define ExtSel_ZERO 1'b0
@@ -30,12 +22,6 @@
 `define ALUOp_BR 4'b1010
 `define ALUOp_SLT  4'b1011
 `define ALUOp_SLTU 4'b1100
-
-// RF control signal
-`define RegSel_rd 2'b00
-`define RegSel_rt 2'b01
-`define RegSel_31 2'b10
-`define RegSel_else 2'b11
 
 `define WDSel_FromALU 2'b00
 `define WDSel_FromMEM 2'b01

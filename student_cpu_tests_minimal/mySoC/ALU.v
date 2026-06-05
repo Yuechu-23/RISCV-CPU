@@ -1,13 +1,10 @@
 `include "ctrl_signal_def.v"
 `include "instruction_def.v"
 
-module ALU(A, B, ALUOp, zero, less, lessu, ALU_result);
+module ALU(A, B, ALUOp, ALU_result);
     input signed [31:0] A;
     input signed [31:0] B;
     input [3:0] ALUOp;
-    output zero;
-    output less;
-    output lessu;
     output reg signed [31:0] ALU_result;
 
     always @(*) begin
@@ -27,9 +24,4 @@ module ALU(A, B, ALUOp, zero, less, lessu, ALU_result);
         endcase
     end
 
-    assign zero = (ALU_result == 32'b0);
-    assign less  = ($signed(A) < $signed(B));
-    assign lessu = ($unsigned(A) < $unsigned(B));
-
 endmodule
-
