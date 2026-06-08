@@ -19,12 +19,32 @@ module riscv(
     output reg [4:0] debug_wb_reg;
     output reg [31:0] debug_wb_value;
 
+    localparam BHT_ENTRIES = 64;
+
     wire [31:0] PC, pc_next, pc_plus4, in_ins;
     wire pc_write;
+    wire [5:0] if_bht_index;
+    wire [5:0] ex_bht_index;
+    wire [6:0] if_opcode;
+    wire if_is_btype;
+    wire if_is_jal;
+    wire [31:0] if_imm_b;
+    wire [31:0] if_imm_j;
+    wire [31:0] if_branch_target;
+    wire [31:0] if_jal_target;
+    wire if_bht_predict_taken;
+    wire if_static_predict_taken;
+    wire if_predicted_taken;
+    wire [31:0] if_predicted_pc;
+
+    reg [1:0] branch_bht [0:BHT_ENTRIES-1];
+    reg branch_bht_valid [0:BHT_ENTRIES-1];
+    integer bht_i;
 
     reg if_id_valid;
     reg [31:0] if_id_pc;
     reg [31:0] if_id_inst;
+    reg [31:0] if_id_predicted_pc;
 
     wire [6:0] id_opcode;
     wire [2:0] id_funct3;
@@ -95,6 +115,7 @@ module riscv(
     reg id_ex_is_jalr;
     reg id_ex_is_lui;
     reg id_ex_is_auipc;
+    reg [31:0] id_ex_predicted_pc;
 
     wire load_use_stall;
     wire redirect_taken;
@@ -109,6 +130,8 @@ module riscv(
     wire [31:0] ex_branch_target;
     wire [31:0] ex_jal_target;
     wire [31:0] ex_jalr_target;
+    wire ex_is_control_flow;
+    wire [31:0] ex_actual_next_pc;
     wire [31:0] ex_u_wdata;
 
     reg ex_mem_valid;
@@ -142,7 +165,29 @@ module riscv(
     wire wb_rf_write;
 
     assign pc_plus4 = PC + 32'd4;
-    assign pc_next = redirect_taken ? redirect_pc : pc_plus4;
+    assign if_bht_index = PC[7:2];
+    assign ex_bht_index = id_ex_pc[7:2];
+    assign if_opcode = in_ins[6:0];
+    assign if_is_btype = (if_opcode == `INSTR_BTYPE_OP);
+    assign if_is_jal = (if_opcode == `INSTR_JAL_OP);
+    assign if_imm_b = {{19{in_ins[31]}}, in_ins[31], in_ins[7],
+                       in_ins[30:25], in_ins[11:8], 1'b0};
+    assign if_imm_j = {{11{in_ins[31]}}, in_ins[31], in_ins[19:12],
+                       in_ins[20], in_ins[30:21], 1'b0};
+    assign if_branch_target = PC + if_imm_b;
+    assign if_jal_target = PC + if_imm_j;
+    assign if_bht_predict_taken = branch_bht[if_bht_index][1];
+    assign if_static_predict_taken = if_imm_b[31];
+    assign if_predicted_taken =
+        if_is_jal ||
+        (if_is_btype &&
+         (branch_bht_valid[if_bht_index] ? if_bht_predict_taken
+                                          : if_static_predict_taken));
+    assign if_predicted_pc =
+        if_is_jal ? if_jal_target :
+        if_predicted_taken ? if_branch_target :
+                             pc_plus4;
+    assign pc_next = redirect_taken ? redirect_pc : if_predicted_pc;
     assign pc_write = redirect_taken || !load_use_stall;
 
     PC U_PC(
@@ -282,11 +327,15 @@ module riscv(
     assign ex_branch_target = id_ex_pc + id_ex_imm_b;
     assign ex_jal_target = id_ex_pc + id_ex_imm_j;
     assign ex_jalr_target = (ex_rs1_data + id_ex_imm_i) & 32'hFFFF_FFFE;
-    assign redirect_taken = id_ex_valid &&
-                            (ex_branch_taken || id_ex_is_jal || id_ex_is_jalr);
-    assign redirect_pc = id_ex_is_jalr ? ex_jalr_target :
-                         id_ex_is_jal  ? ex_jal_target  :
-                                         ex_branch_target;
+    assign ex_is_control_flow = id_ex_is_btype || id_ex_is_jal || id_ex_is_jalr;
+    assign ex_actual_next_pc =
+        id_ex_is_jalr ? ex_jalr_target :
+        id_ex_is_jal  ? ex_jal_target  :
+        ex_branch_taken ? ex_branch_target :
+                          id_ex_pc4;
+    assign redirect_taken = id_ex_valid && ex_is_control_flow &&
+                            (id_ex_predicted_pc != ex_actual_next_pc);
+    assign redirect_pc = ex_actual_next_pc;
     assign ex_u_wdata = id_ex_is_auipc ? (id_ex_pc + id_ex_imm_u) : id_ex_imm_u;
 
     assign dm_ctrl = ex_mem_mem_write ? `DMCtrl_WR : `DMCtrl_RD;
@@ -302,17 +351,38 @@ module riscv(
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
+            for (bht_i = 0; bht_i < BHT_ENTRIES; bht_i = bht_i + 1) begin
+                branch_bht[bht_i] <= 2'b01;
+                branch_bht_valid[bht_i] <= 1'b0;
+            end
+        end else if (id_ex_valid && id_ex_is_btype) begin
+            branch_bht_valid[ex_bht_index] <= 1'b1;
+            if (ex_branch_taken) begin
+                if (branch_bht[ex_bht_index] != 2'b11)
+                    branch_bht[ex_bht_index] <= branch_bht[ex_bht_index] + 2'b01;
+            end else begin
+                if (branch_bht[ex_bht_index] != 2'b00)
+                    branch_bht[ex_bht_index] <= branch_bht[ex_bht_index] - 2'b01;
+            end
+        end
+    end
+
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
             if_id_valid <= 1'b0;
             if_id_pc <= 32'b0;
             if_id_inst <= 32'b0;
+            if_id_predicted_pc <= 32'b0;
         end else if (redirect_taken) begin
             if_id_valid <= 1'b0;
             if_id_pc <= 32'b0;
             if_id_inst <= 32'b0;
+            if_id_predicted_pc <= 32'b0;
         end else if (!load_use_stall) begin
             if_id_valid <= 1'b1;
             if_id_pc <= PC;
             if_id_inst <= in_ins;
+            if_id_predicted_pc <= if_predicted_pc;
         end
     end
 
@@ -345,6 +415,7 @@ module riscv(
             id_ex_is_jalr <= 1'b0;
             id_ex_is_lui <= 1'b0;
             id_ex_is_auipc <= 1'b0;
+            id_ex_predicted_pc <= 32'b0;
         end else if (redirect_taken || load_use_stall) begin
             id_ex_valid <= 1'b0;
             id_ex_mem_read <= 1'b0;
@@ -357,6 +428,7 @@ module riscv(
             id_ex_is_auipc <= 1'b0;
             id_ex_wd_sel <= `WDSel_FromALU;
             id_ex_alu_op <= `ALUOp_ADD;
+            id_ex_predicted_pc <= 32'b0;
         end else begin
             id_ex_valid <= if_id_valid;
             id_ex_pc <= if_id_pc;
@@ -385,6 +457,7 @@ module riscv(
             id_ex_is_jalr <= if_id_valid && id_is_jalr;
             id_ex_is_lui <= if_id_valid && id_is_lui;
             id_ex_is_auipc <= if_id_valid && id_is_auipc;
+            id_ex_predicted_pc <= if_id_valid ? if_id_predicted_pc : 32'b0;
         end
     end
 
